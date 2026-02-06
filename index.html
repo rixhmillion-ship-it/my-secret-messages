@@ -3,104 +3,119 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SecretMsg - Anonymous Feedback</title>
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <title>SecretMsg 🔒</title>
+    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
     <style>
-        body { font-family: 'Segoe UI', sans-serif; background: #f4f7f6; margin: 0; padding: 20px; color: #333; }
-        .container { max-width: 500px; margin: auto; background: white; padding: 25px; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
-        h1 { color: #ff4b2b; text-align: center; }
-        input, textarea { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ddd; border-radius: 10px; box-sizing: border-box; }
-        button { width: 100%; padding: 12px; border: none; border-radius: 10px; cursor: pointer; font-weight: bold; transition: 0.3s; }
+        body { font-family: -apple-system, sans-serif; background: #f8f9fa; display: flex; justify-content: center; padding: 20px; }
+        .card { background: white; padding: 30px; border-radius: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.08); width: 100%; max-width: 400px; text-align: center; }
+        h1 { color: #ff416c; font-size: 2rem; margin-bottom: 5px; }
+        input, textarea { width: 100%; padding: 15px; margin: 10px 0; border: 1px solid #ddd; border-radius: 12px; box-sizing: border-box; font-size: 16px; }
+        button { width: 100%; padding: 15px; border: none; border-radius: 12px; cursor: pointer; font-weight: bold; font-size: 16px; margin-top: 10px; }
         .btn-primary { background: #ff416c; color: white; }
-        .btn-secondary { background: #eee; margin-top: 10px; }
+        .btn-secondary { background: #f0f0f0; color: #444; }
         .hidden { display: none; }
-        .msg-card { background: #f9f9f9; padding: 15px; margin: 10px 0; border-left: 5px solid #ff416c; border-radius: 5px; }
+        #status-log { margin-top: 15px; font-size: 14px; color: #666; padding: 10px; border-radius: 8px; background: #fff5f5; }
     </style>
 </head>
 <body>
 
-<div class="container">
+<div class="card">
     <h1>SecretMsg 🔒</h1>
+    <div id="status-log">Ready to go!</div>
 
-    <div id="auth-section">
+    <div id="auth-ui">
         <input type="email" id="email" placeholder="Email">
         <input type="password" id="password" placeholder="Password">
-        <button class="btn-primary" onclick="handleAuth('signup')">Sign Up</button>
-        <button class="btn-secondary" onclick="handleAuth('login')">Login</button>
+        <button class="btn-primary" onclick="doAuth('signup')">Sign Up</button>
+        <button class="btn-secondary" onclick="doAuth('login')">Login</button>
     </div>
 
-    <div id="dashboard-section" class="hidden">
-        <h3>Welcome!</h3>
-        <p>Your share link: <br><strong id="share-link"></strong></p>
+    <div id="dash-ui" class="hidden">
+        <h3>Share your link:</h3>
+        <p id="share-url" style="color:#007bff; font-weight:bold; word-break:break-all;"></p>
         <hr>
-        <h4>Your Messages:</h4>
-        <div id="messages-list">Loading...</div>
-        <button class="btn-secondary" onclick="logout()">Logout</button>
+        <div id="my-messages"></div>
+        <button class="btn-secondary" onclick="signOut()">Logout</button>
     </div>
 
-    <div id="send-section" class="hidden">
-        <h3>Send a secret message to this user</h3>
-        <textarea id="msg-content" placeholder="Type your honest mind..."></textarea>
-        <button class="btn-primary" onclick="submitMessage()">Send Message</button>
+    <div id="send-ui" class="hidden">
+        <textarea id="msg-text" placeholder="Send an anonymous message..."></textarea>
+        <button class="btn-primary" onclick="postMsg()">Send Secretly</button>
     </div>
 </div>
 
 <script>
     const S_URL = "https://gfebgpouvmxqznuadbdw.supabase.co";
     const S_KEY = "sb_publishable_-rO8f15LFDCJKyN82icV1w_bUfHRSVe";
-    const supabase = lib.supabase.createClient(S_URL, S_KEY);
+    
+    // Initialize Supabase
+    const supabaseClient = supabase.createClient(S_URL, S_KEY);
+    const log = document.getElementById('status-log');
 
-    // Get ID from URL if someone is visiting a profile (e.g., site.com?u=USER_ID)
-    const urlParams = new URLSearchParams(window.location.search);
-    const targetUserId = urlParams.get('u');
+    async function checkSession() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const uId = urlParams.get('u');
 
-    async function init() {
-        if (targetUserId) {
-            showSection('send-section');
+        if (uId) {
+            showPage('send-ui');
         } else {
-            const { data: { user } } = await supabase.auth.getUser();
-            if (user) showDashboard(user);
+            const { data: { user } } = await supabaseClient.auth.getUser();
+            if (user) {
+                showPage('dash-ui');
+                document.getElementById('share-url').innerText = window.location.origin + "?u=" + user.id;
+                loadMyMessages(user.id);
+            } else {
+                showPage('auth-ui');
+            }
         }
     }
 
-    async function handleAuth(type) {
+    async function doAuth(mode) {
         const email = document.getElementById('email').value;
-        const password = document.getElementById('password').value;
-        const { data, error } = type === 'signup' 
-            ? await supabase.auth.signUp({ email, password })
-            : await supabase.auth.signInWithPassword({ email, password });
+        const pass = document.getElementById('password').value;
+        log.innerText = "Attempting " + mode + "...";
 
-        if (error) alert(error.message);
-        else location.reload();
+        const { data, error } = (mode === 'signup') 
+            ? await supabaseClient.auth.signUp({ email, password: pass })
+            : await supabaseClient.auth.signInWithPassword({ email, password: pass });
+
+        if (error) {
+            log.innerText = "❌ Error: " + error.message;
+        } else {
+            log.innerText = "✅ Success! Loading...";
+            setTimeout(() => window.location.reload(), 1000);
+        }
     }
 
-    function showDashboard(user) {
-        showSection('dashboard-section');
-        document.getElementById('share-link').innerText = window.location.origin + "?u=" + user.id;
-        loadMessages(user.id);
+    async function loadMyMessages(uid) {
+        const { data } = await supabaseClient.from('messages').select('*').eq('receiver_id', uid);
+        const container = document.getElementById('my-messages');
+        if (data && data.length > 0) {
+            container.innerHTML = data.map(m => `<div style="background:#f9f9f9; padding:10px; margin-bottom:10px; border-left:4px solid #ff416c; text-align:left;">${m.content}</div>`).join('');
+        } else {
+            container.innerHTML = "<p>No messages yet. Share your link!</p>";
+        }
     }
 
-    async function loadMessages(userId) {
-        const { data, error } = await supabase.from('messages').select('*').eq('receiver_id', userId);
-        const list = document.getElementById('messages-list');
-        list.innerHTML = data.length ? data.map(m => `<div class="msg-card">${m.content}</div>`).join('') : "No messages yet.";
+    async function postMsg() {
+        const content = document.getElementById('msg-text').value;
+        const uId = new URLSearchParams(window.location.search).get('u');
+        const { error } = await supabaseClient.from('messages').insert([{ content, receiver_id: uId }]);
+        if (error) alert("Error: " + error.message);
+        else {
+            alert("Message Sent! 🔒");
+            document.getElementById('msg-text').value = "";
+        }
     }
 
-    async function submitMessage() {
-        const content = document.getElementById('msg-content').value;
-        const { error } = await supabase.from('messages').insert([{ content, receiver_id: targetUserId }]);
-        if (error) alert("Error sending!");
-        else alert("Sent! They'll never know it was you.");
-    }
-
-    function showSection(id) {
-        ['auth-section', 'dashboard-section', 'send-section'].forEach(s => document.getElementById(s).classList.add('hidden'));
+    function showPage(id) {
+        ['auth-ui', 'dash-ui', 'send-ui'].forEach(p => document.getElementById(p).classList.add('hidden'));
         document.getElementById(id).classList.remove('hidden');
     }
 
-    function logout() { supabase.auth.signOut(); location.reload(); }
+    function signOut() { supabaseClient.auth.signOut().then(() => location.reload()); }
 
-    init();
+    checkSession();
 </script>
 </body>
-  </html>
+</html>
